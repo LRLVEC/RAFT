@@ -1,0 +1,1 @@
+trtexec --onnx=RAFT_things.onnx --saveEngine=RAFT_things.trt --fp16

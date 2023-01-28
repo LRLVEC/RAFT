@@ -1,0 +1,1 @@
+CUDA_MODULE_LOADING=LAZY trtexec --onnx=RAFT_things_linux.onnx --saveEngine=RAFT_things_linux.trt --fp16 --minShapes=image1:1x3x256x256,image2:1x3x256x256 --optShapes=image1:2x3x800x800,image2:2x3x800x800 --maxShapes=image1:8x3x1024x1024,image2:8x3x1024x1024 --workspace=22480 --preview=+"fasterDynamicShapes0805"

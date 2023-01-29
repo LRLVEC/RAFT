@@ -4,9 +4,7 @@ sys.path.append("core")
 
 import argparse
 import os
-import pycuda.driver as cuda
-import pycuda.autoinit
-import tensorrt as trt
+import raft_trt
 import cv2
 import glob
 import numpy as np
@@ -20,36 +18,7 @@ from core.utils.utils import InputPadder
 
 from timeit import default_timer as timer
 
-TRT_LOGGER = trt.Logger()
-
 DEVICE = "cuda"
-
-
-class TRTInfer:
-    # input image is original size
-    def __init__(self, engine_file_path):
-        trt.init_libnvinfer_plugins(None, "")
-        assert os.path.exists(engine_file_path)
-        print("Reading engine from file {}".format(engine_file_path))
-        with open(engine_file_path, "rb") as f, trt.Runtime(TRT_LOGGER) as runtime:
-            self.engine = runtime.deserialize_cuda_engine(f.read())
-        self.initialized = False
-
-    def init_buffers(self, shape):
-        self.context = self.engine.create_execution_context()
-        # shape = (shape[0], shape[1], shape[2], shape[3])
-        self.context.set_binding_shape(self.engine.get_binding_index("image1"), shape)
-        self.context.set_binding_shape(self.engine.get_binding_index("image2"), shape)
-        self.stream = cuda.Stream()
-        self.initialized = True
-
-    def infer(self, image1, image2, output):
-        self.context.execute_async_v2(
-            bindings=[image1.data_ptr(), image2.data_ptr(), output.data_ptr()],
-            stream_handle=self.stream.handle,
-        )
-        self.stream.synchronize()
-        return output
 
 
 def load_image(imfile, padder: InputPadder):
@@ -88,7 +57,7 @@ def demo(args):
     model.to(DEVICE)
     model.eval()
 
-    trtmodel = TRTInfer(args.trtmodel)
+    trtmodel = raft_trt.RAFTInferTRT(args.trtmodel)
 
     with torch.no_grad():
         images = glob.glob(os.path.join(args.path, "*.png")) + glob.glob(os.path.join(args.path, "*.jpg"))
@@ -98,42 +67,35 @@ def demo(args):
         batch_num = (len(images) - 1) // batch_size
         image0 = load_image(images[0], None)
         padder = InputPadder(image0.shape)
+        images = torch.cat([load_image(images[k], padder) for k in range(len(images))], 0).to(DEVICE)
+        print(images.shape)
 
         for i in range(batch_num):
-            image1s = torch.cat(
-                [load_image(images[batch_size * i + k], padder) for k in range(batch_size)],
-                0,
-            ).to(DEVICE)
-            image2s = torch.cat(
-                [load_image(images[batch_size * i + k + 1], padder) for k in range(batch_size)],
-                0,
-            ).to(DEVICE)
-            if trtmodel.initialized == False:
-                trtmodel.init_buffers(image1s.shape)
-
             torch.cuda.synchronize(DEVICE)
             start = timer()
-            flow_up = model(image1s, image2s, iters=20, test_mode=True)
+            flow_up = model(images[i * batch_size:i * batch_size + batch_size],
+                            images[i * batch_size + 1:i * batch_size + batch_size + 1],
+                            iters=20,
+                            test_mode=True)
             torch.cuda.synchronize(DEVICE)
             end = timer()
 
             print("Original time : %.1f ms" % (1000 * (end - start)), end="")
 
-            output_shape = image1s.shape
             flow_up_trt = torch.empty(
-                (output_shape[0], 2, output_shape[2], output_shape[3]),
+                (batch_size, 2, images.shape[2], images.shape[3]),
                 dtype=torch.float32,
                 device=DEVICE,
             )
 
             torch.cuda.synchronize(DEVICE)
             start = timer()
-            flow_up_trt = trtmodel.infer(image1s, image2s, flow_up_trt)
+            flow_up_trt = trtmodel.infer_batch(images[i * batch_size:], images[i * batch_size + 1:], flow_up_trt, batch_size)
             torch.cuda.synchronize(DEVICE)
             end = timer()
             print(" TensorRT time : %.1f ms" % (1000 * (end - start)))
 
-            viz(image1s, flow_up, flow_up_trt)
+            viz(images[i * batch_size:i * batch_size + batch_size], flow_up, flow_up_trt)
 
 
 def model_converter(args):

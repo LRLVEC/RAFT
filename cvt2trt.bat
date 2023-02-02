@@ -1,1 +1,1 @@
-trtexec --onnx=RAFT_things.onnx --saveEngine=RAFT_things.trt --fp16
+trtexec --onnx=models/RAFT_things_win.onnx --saveEngine=models/RAFT_things_win.trt --fp16 --minShapes=image1:1x3x256x256,image2:1x3x256x256 --optShapes=image1:1x3x512x800,image2:1x3x512x800 --maxShapes=image1:1x3x512x1024,image2:1x3x512x1024 --workspace=8000 --preview=+"fasterDynamicShapes0805"

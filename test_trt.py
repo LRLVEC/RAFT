@@ -21,7 +21,7 @@ from timeit import default_timer as timer
 DEVICE = "cuda"
 
 
-def load_image(imfile, padder: InputPadder):
+def load_image(imfile, padder: InputPadder = None):
     img = np.array(Image.open(imfile)).astype(np.uint8)
     img = torch.from_numpy(img).permute(2, 0, 1).float()
     if padder:
@@ -63,7 +63,7 @@ def demo(args):
         images = glob.glob(os.path.join(args.path, "*.png")) + glob.glob(os.path.join(args.path, "*.jpg"))
 
         images = sorted(images)
-        batch_size = 4
+        batch_size = 1
         batch_num = (len(images) - 1) // batch_size
         image0 = load_image(images[0], None)
         padder = InputPadder(image0.shape)
@@ -90,7 +90,8 @@ def demo(args):
 
             torch.cuda.synchronize(DEVICE)
             start = timer()
-            flow_up_trt = trtmodel.infer_batch(images[i * batch_size:], images[i * batch_size + 1:], flow_up_trt, batch_size)
+            flow_up_trt = trtmodel.infer_batch(images[i * batch_size:], images[i * batch_size + 1:], flow_up_trt,
+                                               batch_size)
             torch.cuda.synchronize(DEVICE)
             end = timer()
             print(" TensorRT time : %.1f ms" % (1000 * (end - start)))
@@ -149,7 +150,7 @@ def model_converter(args):
     torch.onnx.export(
         model,
         input_args,
-        "RAFT_things_linux.onnx",
+        args.onnxmodel,
         export_params=True,
         verbose=True,
         opset_version=16,
@@ -157,13 +158,16 @@ def model_converter(args):
         input_names=input_names,
         output_names=output_names,
     )
+    torch.cuda.empty_cache()
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--model", help="restore checkpoint")
+    parser.add_argument("--onnxmodel", help="onnx model")
     parser.add_argument("--trtmodel", help="tensorRT model")
     parser.add_argument("--path", help="dataset for evaluation")
+    parser.add_argument("--gen_onnx", action="store_true", help="generate onnx model")
     parser.add_argument("--small", action="store_true", help="use small model")
     parser.add_argument("--mixed_precision", action="store_true", help="use mixed precision")
     parser.add_argument(
@@ -172,5 +176,6 @@ if __name__ == "__main__":
         help="use efficent correlation implementation",
     )
     args = parser.parse_args()
-    # model_converter(args)
+    if args.gen_onnx:
+        model_converter(args)
     demo(args)

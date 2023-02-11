@@ -11,7 +11,14 @@ def pad_images(images):
     pad_ht = (((ht // 8) + 1) * 8 - ht) % 8
     pad_wd = (((wd // 8) + 1) * 8 - wd) % 8
     _pad = [pad_wd // 2, pad_wd - pad_wd // 2, pad_ht // 2, pad_ht - pad_ht // 2]
-    return F.pad(images, _pad, mode='replicate')
+    return F.pad(images, _pad, mode='replicate'), _pad
+
+
+def unpad_images(images, _pad):
+    """ return unpadded images """
+    ht, wd = images.shape[-2:]
+    c = [_pad[2], ht - _pad[3], _pad[0], wd - _pad[1]]
+    return images[..., c[0]:c[1], c[2]:c[3]]
 
 
 def optical_flow_visualize(img, flows: list, show=True, save_video=False, save_path="video.avi"):
@@ -42,4 +49,3 @@ def optical_flow_visualize(img, flows: list, show=True, save_video=False, save_p
         cv2.destroyAllWindows()
     if save_video:
         video.release()
-
